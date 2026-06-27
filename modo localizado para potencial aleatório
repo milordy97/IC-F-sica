@@ -1,0 +1,97 @@
+import numpy as np
+import scipy.sparse as sp
+import scipy.sparse.linalg as spla
+import matplotlib.pyplot as plt
+
+### configuração inicial parecido com matlab ###
+L = 4 * np.pi
+N = 2000
+nmodes = 3
+
+### 
+x = np.linspace(-L, L, N)
+dx = x[1] - x[0]
+### Hamiltoniano ###
+
+# Laplaciano (matriz esparsa) ###
+e = np.ones(N)
+Lap = sp.diags([e, -2*e, e], [-1, 0, 1], shape=(N, N)) / (dx**2)
+
+### Potencial aleatório fator 1000  ###
+np.random.seed(42)
+U_vector = 1000 * np.random.rand(N)
+U = sp.diags(U_vector, 0, shape=(N, N))
+
+# Hamiltoniano ###
+H = -0.5 * Lap + U
+
+vals, vecs = spla.eigsh(H, k=nmodes, which='SA')  # Menores autovalores
+idx = np.argsort(vals)
+vals = vals[idx]
+vecs = vecs[:, idx]
+# ============================================
+# VISUALIZAÇÃO
+# ============================================
+fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
+
+# Configurar os ticks do eixo x para múltiplos de π
+xticks = np.linspace(-L, L, 9)  # 9 pontos de -4π a 4π, incluindo 0
+xtick_labels = [r'$-4\pi$', r'$-3\pi$', r'$-2\pi$', r'$-\pi$', r'$0$',
+                r'$\pi$', r'$2\pi$', r'$3\pi$', r'$4\pi$']
+
+# Painel A: Potencial e níveis de energia
+ax1.plot(x, U_vector, 'k-', linewidth=1.5, alpha=0.7, label='V(x)')
+for i, E in enumerate(vals):
+    ax1.axhline(y=E, color=f'C{i}', linestyle='--', linewidth=2,
+                alpha=0.8, label=rf'$E_{i+1}=${E:.2f}')
+ax1.set_xlabel('x')
+ax1.set_ylabel('V(x)')
+ax1.set_xticks(xticks)
+ax1.set_xticklabels(xtick_labels)
+ax1.legend(loc='upper right')
+ax1.grid(True, alpha=0.3)
+#ax1.set_title(f'Potencial Aleatório (V₀ = 1000)')
+
+# Painel B: Densidades de probabilidade (escala log)
+for i in range(nmodes):
+    psi = vecs[:, i]
+    rho = psi**2
+    rho_normalized = rho / np.max(rho)  # Normalizar para melhor visualização
+    ax2.plot(x, rho_normalized, linewidth=2, alpha=0.8,
+             label=rf'$|\psi_{i+1}|^2$')
+ax2.set_xlabel('x')
+ax2.set_ylabel(r'$|\psi|^2$')
+ax2.set_yscale('log')
+ax2.set_xticks(xticks)
+ax2.set_xticklabels(xtick_labels)
+ax2.legend(loc='upper right')
+ax2.grid(True, alpha=0.3)
+#ax2.set_title(f'Densidade de Probabilidade (3 menores modos)')
+
+plt.tight_layout()
+plt.show()
+
+# ============================================
+# RESULTADOS NUMÉRICOS
+# ============================================
+# print("\n" + "="*50)
+# print("LOCALIZAÇÃO DE ANDERSON - 1D")
+# print("="*50)
+# print(f"Comprimento do sistema: L = {L:.2f} = 4π")
+# print(f"Número de pontos: N = {N}")
+# print(f"Espaçamento: Δx = {dx:.4f}")
+# print(f"Máximo do potencial: {np.max(U_vector):.1f}")
+# print(f"Mínimo do potencial: {np.min(U_vector):.1f}")
+# print("\nAutovalores calculados (3 menores):")
+for i, v in enumerate(vals):
+    print(f"  E{i+1} = {v:.6f}")
+
+# Calcular IPR para cada modo
+print("\nInverse Participation Ratio (IPR):")
+for i in range(nmodes):
+    psi = vecs[:, i]
+    rho = psi**2
+    rho_norm = rho / np.sum(rho)  # Normalizar para soma = 1
+    ipr = np.sum(rho_norm**2)
+    print(f"  Estado {i+1}: IPR = {ipr:.4f} {'(localizado)' if ipr > 0.01 else '(estendido)'}")
+print("="*50)

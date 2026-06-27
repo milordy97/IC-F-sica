@@ -1,0 +1,93 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.linalg import solve
+from scipy.stats import linregress
+from tqdm import tqdm
+
+# =============================================================================
+# Parâmetros físicos
+# =============================================================================
+Gamma = 1.0
+k = 1.0
+rho = 0.3
+Omega0 = 1.0
+Delta = 1.0          # dessintonia (evita singularidade em Δ=0)
+
+# =============================================================================
+# Parâmetros da simulação
+# =============================================================================
+N_min, N_max = 1, 100
+N_values = np.arange(N_min, N_max + 1, dtype=int)
+num_chains_per_N = 20
+
+np.random.seed(42)
+
+def transmission(positions, Delta, L, Gamma, k, Omega0):
+    N = len(positions)
+    M = np.zeros((N, N), dtype=complex)
+    b = np.zeros(N, dtype=complex)
+    for i in range(N):
+        for j in range(N):
+            if i == j:
+                M[i, j] = 1j * Delta - Gamma / 2.0
+            else:
+                r_ij = abs(positions[i] - positions[j])
+                M[i, j] = -Gamma / 2.0 * np.exp(1j * k * r_ij)
+        b[i] = 1j * Omega0 / 2.0 * np.exp(1j * k * positions[i])
+    beta = solve(M, b)
+    E_L = -Omega0 * np.exp(1j * k * L) + 1j * Gamma * np.sum(
+        np.exp(1j * k * np.abs(positions - L)) * beta
+    )
+    return np.abs(E_L / Omega0) ** 2
+
+
+# Coleta dos dados
+L_vals = []
+logT_mean = []   # armazena média do log(T) para o ajuste linear#
+
+for N in tqdm(N_values, desc="Progresso"):
+    L = N / rho
+    L_vals.append(L)
+    logT_list = []
+    for _ in range(num_chains_per_N):
+        positions = np.random.uniform(0, L, N)
+        positions.sort()
+        T = transmission(positions, Delta, L, Gamma, k, Omega0)
+        if T < 1e-30:
+            logT = -np.inf
+        else:
+            logT = np.log(T)
+        logT_list.append(logT)
+    finite = [x for x in logT_list if np.isfinite(x)]
+    if finite:
+        logT_mean.append(np.mean(finite))
+    else:
+        logT_mean.append(np.nan)
+
+L_vals = np.array(L_vals)
+logT_mean = np.array(logT_mean)
+valid = np.isfinite(logT_mean)
+L_valid = L_vals[valid]
+logT_valid = logT_mean[valid]
+
+# Ajuste linear: log(T) = -L/ξ + constante
+slope, intercept, _, _, _ = linregress(L_valid, logT_valid)
+xi = -1.0 / slope
+print(f"Comprimento de localização ξ = {xi:.3f} (1/k)")
+
+# Plotagem da transmissão média em escala logarítmica (semilogy)
+plt.figure(figsize=(8, 5))
+# Curva da média (converte log(T) → T via exp)
+T_mean = np.exp(logT_valid)
+plt.semilogy(L_valid, T_mean, 'b-', linewidth=2, label='Média da transmissão')
+# Reta do ajuste exponencial: T = exp(intercept) * exp(slope * L)
+T_fit = np.exp(intercept) * np.exp(slope * L_valid)
+plt.semilogy(L_valid, T_fit, 'r--', linewidth=2, label=f'Ajuste: $T \\propto e^{{-L/\\xi}}$')
+plt.xlabel(' $L$ ', fontsize=12)
+plt.ylabel('$\\langle T \\rangle$', fontsize=12)
+#plt.title(f'Figura 4: Decaimento exponencial (escala log-linear)\n'
+          ##f'$\\rho = {rho}\,k$, $\\Delta = {Delta}\\Gamma$, $\\Omega_0 = {Omega0}$', fontsize=10)
+plt.grid(True, which='both', linestyle=':', alpha=0.6)
+plt.legend()
+plt.tight_layout()
+plt.show()

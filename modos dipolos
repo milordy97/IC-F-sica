@@ -1,0 +1,104 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.spatial.distance import pdist, squareform
+
+
+# PARÂMETROS DO SISTEMA (unidades: k=1, Gamma=1)
+
+N = 1000               # número de átomos
+densidade = 0.5            # densidade ρ em unidades de k^3 
+Delta = 0.0                # dessintonia 
+k = 1.0                    # número de onda 
+Gamma = 1.0                # largura natural 
+
+# Calcula o raio da nuvem esférica a partir da densidade e do número de átomos
+
+R = (3 * N / (4 * np.pi * densidade)) ** (1/3)
+print(f"Raio da nuvem: R = {R:.3f} (em unidades de 1/k)")
+
+# ============================================================
+# GERAÇÃO DAS POSIÇÕES DOS ÁTOMOS (distribuição uniforme na esfera)
+# ============================================================
+posicoes = []
+while len(posicoes) < N:
+    # Gera coordenadas cúbicas e rejeita se estiver fora da esfera de raio R
+    ponto = np.random.uniform(-R, R, 3)
+    if np.sum(ponto**2) <= R**2:
+        posicoes.append(ponto)
+posicoes = np.array(posicoes)   # matriz N x 3
+
+# ============================================================
+# CONSTRUÇÃO DA MATRIZ DE INTERAÇÃO M (N x N)
+# ============================================================
+# Matriz de distâncias entre todos os pares de átomos
+distancias = squareform(pdist(posicoes))   # matriz simétrica N x N
+
+# Inicializa M com zeros complexos
+M = np.zeros((N, N), dtype=complex)
+
+# Termos diagonais: M_ii = iΔ - Γ/2
+np.fill_diagonal(M, 1j * Delta - (Gamma/2))
+
+# Termos não diagonais: M_ij = exp(i k r_ij) / (i k r_ij)  para i ≠ j
+for i in range(N):
+    for j in range(i+1, N):
+        r = distancias[i, j]
+        if r > 0:   # evita divisão por zero
+            valor = np.exp(1j * k * r) / (1j * k * r)
+            M[i, j] = valor
+            M[j, i] = valor   # matriz é simétrica
+
+
+autovalores, autovetores = np.linalg.eig(M)
+taxas = -autovalores.real                 # Γ_n = -Re(λ_n)
+ipr = np.sum(np.abs(autovetores), axis=0)   # IPR = Σ |ψ|⁴ (já normalizado)
+
+
+indice_super = np.argmax(taxas)            
+indice_sub   = np.argmin(taxas)           
+indice_loc   = np.argmax(ipr)              
+
+
+
+def plotar_perfil(vetor, titulo):
+    # Probabilidades (|ψ|²)
+    prob = np.abs(vetor)**2
+    prob /= prob.sum()   # garante normalização (já deveria estar, mas por segurança)
+
+    # Centro de massa ponderado pela probabilidade
+    cm = np.sum(posicoes * prob[:, np.newaxis], axis=0) / prob.sum()
+
+    # Distância de cada átomo ao centro de massa (em unidades de 1/k)
+    distancia = np.linalg.norm(posicoes - cm, axis=1)
+
+    # Ordena os átomos pela distância ao centro de massa
+    ordem = np.argsort(distancia)
+    dist_ordenada = distancia[ordem]
+    prob_ordenada = prob[ordem]
+
+    # Converte a distância para a grandeza adimensional k * (r - r_cm)
+    # Como k=1, é simplesmente a distância, mas mantemos a fórmula para clareza
+    eixo_x = k * dist_ordenada   # adimensional
+
+    # Plot em escala semi-log
+    plt.figure(figsize=(8, 5))
+    plt.semilogy(eixo_x, prob_ordenada, 'o', markersize=4, alpha=0.7)
+    plt.xlabel(r'$k \cdot |\mathbf{r} - \mathbf{r}_{CM}|$', fontsize=12)
+    plt.ylabel(r'$|\psi|^2$', fontsize=12)
+    plt.title(titulo)
+    plt.grid(True, linestyle='--', alpha=0.5)
+    plt.tight_layout()
+    
+    plt.show()
+
+
+
+
+plotar_perfil(autovetores[:, indice_loc],
+              f'Modo Superradiante ')
+
+plotar_perfil(autovetores[:, indice_sub],
+              f'Modo Subradiante ')
+
+plotar_perfil(autovetores[:, indice_super],
+              f'Modo localizado ')

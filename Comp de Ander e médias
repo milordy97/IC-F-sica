@@ -1,0 +1,200 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.linalg import eig
+
+
+# Parâmetros
+
+N = 50             # número de átomos
+rho = 0.5              # densidades em unidade de k = 1
+Gamma = 1.0            # Gama = 1
+k = 1.0                # definindo  k = 1
+Delta = 0.0            # dessintonização
+
+# comprimento do sistema e posições aleatórias
+L = N / rho
+np.random.seed(42)     #PAra ter consistência
+positions = np.sort(np.random.uniform(0, L, N))
+
+# matriz
+M = np.zeros((N, N), dtype=complex)
+for j in range(N):
+    for m in range(N):
+        if j == m:
+            M[j, m] = 1j * Delta - Gamma / 2.0
+        else:
+            r_abs = np.abs(positions[j] - positions[m])
+            M[j, m] = -Gamma/2.0 * np.exp(1j * k * r_abs)
+
+# Autovalores e Autovetores
+eigenvalues, eigenvectors = eig(M)
+
+
+# usando o IPR
+squared_amplitudes = np.abs(eigenvectors)**2
+max_amp_indices = np.argmax(squared_amplitudes, axis=0)
+max_amps = squared_amplitudes[max_amp_indices, range(N)]
+# modo com maximo
+Ind_modo_escolhido = np.argmax(max_amps)
+psi = eigenvectors[:, Ind_modo_escolhido]
+amp_sq = np.abs(psi)**2
+
+## Registrar o CM do centro de massa do modo #
+r_CM = np.sum(positions * amp_sq) / np.sum(amp_sq)
+
+distancias = np.abs(positions - r_CM)
+
+#Colocando um limitador#
+lim = 1e-15
+mask = amp_sq > lim
+dist_fit = distancias[mask]
+amp_sq_fit = amp_sq[mask]
+
+# Log das amplitudes #
+log_amp_sq_fit = np.log(amp_sq_fit)
+
+# ajuste linear#
+dec, intercept = np.polyfit(dist_fit, log_amp_sq_fit, 1)
+xi = -1.0 / dec
+
+#print(f"Modo escolhido: {Ind_modo_escolhido}")
+#print(f"Comprimento de Localização ξ = {xi:.3f}")
+
+plt.figure(figsize=(8, 5))
+# plotar tdos em azul
+plt.scatter(distancias, amp_sq, color='blue', s=30, label='Todos os Pontos')
+# os primeiros em vermelho
+plt.scatter(dist_fit, amp_sq_fit, color='red', s=30, label='Pontos escolhidos no ajuste')
+
+d_line = np.linspace(0, np.max(dist_fit), 200)
+fit_line = np.exp(intercept + dec * d_line)
+plt.plot(d_line, fit_line, 'g-', linewidth=2, label=f'Fit: ξ = {xi:.2f}')
+
+plt.yscale('log')
+plt.xlabel(r'$|r_n - r_{CM}|$', fontsize=12)
+plt.ylabel(r'$|\Psi_n|^2$', fontsize=12)
+plt.title(f'Modo localizado {Ind_modo_escolhido}, N ={N}')
+plt.legend()
+plt.grid(True, alpha=0.3)
+plt.tight_layout()
+plt.show()
+
+
+
+# ============================================================
+# PART 2: Density scan – average ξ as function of ρ
+# ============================================================
+print("\n" + "="*60)
+print("PART 2: Average localization length vs density")
+print("="*60)
+
+# Parametros
+N_scan = 50               # numero de átomos
+num_realizações = 20       # numero de configurações aleatórias por densidade
+rho_values = np.linspace(0.2, 2.0, 30)   # densidades diferentes testadas
+
+
+Gamma = 1.0
+k = 1.0
+Delta = 0.0
+
+def compute_xi_for_positions(positions, Gamma, k, Delta):
+    
+    N = len(positions)
+    M = np.zeros((N, N), dtype=complex)
+    for j in range(N):
+        for m in range(N):
+            if j == m:
+                M[j, m] = 1j * Delta - Gamma / 2.0
+            else:
+                r_abs = np.abs(positions[j] - positions[m])
+                M[j, m] = -Gamma/2.0 * np.exp(1j * k * r_abs)
+    
+    eigvals, eigvecs = eig(M)
+    
+    # MModo mais localizado#
+    sq_amps = np.abs(eigvecs)**2
+    max_amp_indices = np.argmax(sq_amps, axis=0)
+    max_amps = sq_amps[max_amp_indices, range(N)]
+    idx_mode = np.argmax(max_amps)
+    psi = eigvecs[:, idx_mode]
+    amp_sq = np.abs(psi)**2
+    
+    #centro de massa#
+
+    r_CM = np.sum(positions * amp_sq) / np.sum(amp_sq)
+    distances = np.abs(positions - r_CM)
+    
+    # Ajuste exponencial
+    threshold = 1e-15
+    mask = amp_sq > threshold
+    if np.sum(mask) < 3:
+        return np.nan
+    dist_fit = distances[mask]
+    amp_sq_fit = amp_sq[mask]
+    log_amp = np.log(amp_sq_fit)
+    dec, _ = np.polyfit(dist_fit, log_amp, 1)
+    xi = -1.0 / dec
+    return xi if xi > 0 else np.nan
+
+mean_xi = []
+std_xi = []
+
+for rho in rho_values:
+    L = N_scan / rho
+    xi_list = []
+    for _ in range(num_realizações):
+        # Diferentes sementes iniciais para cada realização#
+        positions = np.sort(np.random.uniform(0, L, N_scan))
+        xi = compute_xi_for_positions(positions, Gamma, k, Delta)
+        if not np.isnan(xi):
+            xi_list.append(xi)
+    if len(xi_list) == 0:
+        mean_xi.append(np.nan)
+        std_xi.append(np.nan)
+        print(f"ρ = {rho:.3f}: no valid fits")
+    else:
+        mean_xi.append(np.mean(xi_list))
+        std_xi.append(np.std(xi_list))
+        print(f"ρ = {rho:.3f}: \u03BE = {mean_xi[-1]:.2f} ± {std_xi[-1]:.2f}")
+
+
+
+
+# Plot com ajuste de lei de potência (escala log-log)#
+
+
+# Remove pontos inválidos (NaN ou xi <= 0)
+valid_mask = ~np.isnan(mean_xi) & (np.array(mean_xi) > 0)
+rho_valid = np.array(rho_values)[valid_mask]
+xi_valid = np.array(mean_xi)[valid_mask]
+std_valid = np.array(std_xi)[valid_mask]
+
+if len(rho_valid) >= 2:
+    # Ajuste linear em log10
+    log_rho = np.log10(rho_valid)
+    log_xi = np.log10(xi_valid)
+    coeffs = np.polyfit(log_rho, log_xi, 1)  
+    alpha = coeffs[0]
+    C = 10 ** coeffs[1]
+    
+   
+
+# Gráfico
+plt.figure(figsize=(8, 6))
+plt.errorbar(rho_values, mean_xi, yerr=std_xi, fmt='o-', capsize=1,
+             color='blue', ecolor='gray', elinewidth=1, markeredgewidth=1,
+             label='Dados simulados')
+
+if len(rho_valid) >= 2:
+    plt.plot(rho_fit, xi_fit, 'r--', linewidth=2,
+             label=f'Ajuste: $\\langle\\xi\\rangle = {C:.2f} \\rho^{{{alpha:.2f}}}$\n$R^2={r2:.3f}$')
+
+plt.xlabel(r'$\rho$', fontsize=12)
+plt.ylabel(r'$\langle \xi \rangle$', fontsize=12)
+plt.xscale('log')
+plt.yscale('log')
+plt.grid(True, alpha=0.3)
+plt.legend()
+plt.tight_layout()
+plt.show()
